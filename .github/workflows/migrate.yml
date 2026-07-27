@@ -1,0 +1,35 @@
+name: Domestic Media Assets Migration
+
+on:
+  schedule:
+    # 🌟 每 3 小时自动运行一次（可以根据需要调整频率）
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+    # 🌟 支持在 GitHub 仓库手动点击按钮立刻执行
+
+jobs:
+  run-migration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run Domestic Migration Script
+        env:
+          # 🌟 自动绑定你在 GitHub Secrets 里配置好的三个全新变量
+          TELEGRAPH_DOMAIN: ${{ secrets.TELEGRAPH_DOMAIN }}
+          CF_WORKER_DOMESTIC_API: ${{ secrets.CF_WORKER_DOMESTIC_API }}
+          CF_SECRET_TOKEN: ${{ secrets.CF_SECRET_TOKEN }}
+        run: |
+          python migration_domestic.py
