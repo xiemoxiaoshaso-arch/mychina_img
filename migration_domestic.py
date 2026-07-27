@@ -48,7 +48,7 @@ def migrate_movie_covers():
     print("==================================================")
     try:
         # 每次获取 500 部进行处理
-        resp = requests.get(f"{base_api}/api/migration-pending?limit=500", headers=headers, timeout=15)
+        resp = requests.get(f"{base_api}/api/migration-pending?limit=1000", headers=headers, timeout=15)
         if resp.status_code != 200:
             print(f"❌ 获取待处理封面名单失败: {resp.text}")
             return
