@@ -33,7 +33,7 @@ if not base_domain.startswith(('http://', 'https://')):
     base_domain = 'https://' + base_domain
 
 # 🌟 本地已清洗数据的备份原站下载域名（万一遇到相对路径，自动以此域名补全去原站拉取）
-BACKUP_DOWNLOAD_HOST = "https://md.hm1225.cyou" 
+BACKUP_DOWNLOAD_HOST = "https://i0.wp.com/madouqu.com" 
 
 img_headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
