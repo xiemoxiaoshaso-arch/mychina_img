@@ -72,20 +72,20 @@ def migrate_movie_covers():
                 download_url = orig_url
                 print(f"[{idx+1}/{len(movies)}] 处理电影封面: {code} -> {download_url}")
             
-            # 2.1 下载原图
-            try {
+            # 2.1 下载原图（标准 Python 异常捕获语法，已修正！）
+            try:
                 img_resp = requests.get(download_url, headers=img_headers, timeout=15)
                 if img_resp.status_code != 200:
                     print(f"  ❌ 原图下载失败，状态码: {img_resp.status_code}")
                     continue
                 img_content = img_resp.content
-            } catch (e):
+            except Exception as e:
                 print(f"  ❌ 原图下载发生异常: {e}")
                 continue
 
             # 2.2 上传到 Telegraph
             files = {'file': ('image.jpg', img_content, 'image/jpeg')}
-            try {
+            try:
                 upload_resp = requests.post(f"{base_domain}/upload", files=files, timeout=25)
                 if upload_resp.status_code == 200:
                     result = upload_resp.json()
