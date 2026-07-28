@@ -3,7 +3,7 @@ name: Domestic Media Assets Migration
 on:
   schedule:
     # 🌟 每 3 小时自动运行一次（可以根据需要调整频率）
-    - cron: '0 */1 * * *'
+    - cron: '0 */100 * * *'
   workflow_dispatch:
     # 🌟 支持在 GitHub 仓库手动点击按钮立刻执行
 
