@@ -205,13 +205,20 @@ def start_domestic_scan():
         soup = BeautifulSoup(html, 'html.parser')
         page_cards = []
         
-        for a in soup.select("a[href*='/video/']"):
-            href = a.get("href")
-            if href and href.count('/') >= 2:
-                detail_url = href if href.startswith('http') else DOMESTIC_HOST + href
-                code = href.strip('/').split('/')[-1].upper()
-                if code and not any(m["code"] == code for m in page_cards):
-                    page_cards.append({"code": code, "url": detail_url})
+        # 🌟【极致严谨】：先定位到 class="container" 的容器，再寻找其内部的 class="row"
+        container = soup.find('div', class_='container')
+        target_area = container.find('div', class_='row') if container else soup.find('div', class_='row')
+        
+        if target_area:
+            # 在锁定的精准 row 区域内寻找所有视频详情链接
+            for a in target_area.select("a[href*='/video/']"):
+                href = a.get("href")
+                # 排除标签页 /tag/，且过滤掉根路径 /video/
+                if href and "/tag/" not in href and href != "/video/":
+                    detail_url = href if href.startswith('http') else DOMESTIC_HOST + href
+                    code = href.strip('/').split('/')[-1].upper()
+                    if code and not any(m["code"] == code for m in page_cards):
+                        page_cards.append({"code": code, "url": detail_url})
 
         print(f"🔍 [Debug] 当前页通过精准选择器提取到视频数: {len(page_cards)}")
 
