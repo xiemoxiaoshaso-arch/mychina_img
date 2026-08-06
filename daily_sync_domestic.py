@@ -67,44 +67,32 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 🌟 纯 Python 无头浏览器过盾请求器 ====================
+# ==================== 3. 智能网页请求器（带 Playwright / Curl-Cffi 双保险） ====================
 def fetch_html_content(url):
-    """
-    使用轻量级 Python 浏览器自动化工具 Playwright，模拟真实浏览器自动过盾并获取动态渲染后的 HTML
-    """
-    print(f"📡 正在通过 Python 无头浏览器访问: {url}")
+    # 优先使用直连加模拟指纹（madouqu.com 对 curl_cffi 的 chrome120 指纹兼容极好）
     try:
+        resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+        if resp.status_code == 200:
+            if "Just a moment" not in resp.text and len(resp.text) > 500:
+                return resp.text
+    except Exception:
+        pass
+
+    # 备用：若直连受阻，尝试通过 Playwright 无头浏览器渲染
+    try:
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-            # 启动无头 Chromium 浏览器
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800}
-            )
-            page = context.new_page()
-            
-            # 访问目标网址，设置 60 秒超时以防 Cloudflare 盾牌卡顿
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            
-            # 🌟 核心智能等待：如果遇到 Cloudflare 5秒盾，自动在后台等待其跳转进入主站
-            try:
-                # 等待页面中出现电影卡片或标题元素（最多等待 12 秒）
-                page.wait_for_selector(".item, h1, .movie-list", timeout=12000)
-            except Exception:
-                # 如果没抓到选择器也强制暂停 3 秒，确保 JS 执行完毕
-                time.sleep(3)
-                
+            page = browser.new_context(user_agent=HEADERS["User-Agent"]).new_page()
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+            time.sleep(2)
             html_text = page.content()
             browser.close()
-            
             if html_text and len(html_text) > 500:
-                print(f"📡 [浏览器抓取成功] 返回网页前 300 字符:\n{html_text[:300]}")
                 return html_text
-            else:
-                print("  ⚠️ 浏览器抓取到的页面内容过短或为空。")
     except Exception as e:
-        print(f"  ❌ Playwright 浏览器渲染发生异常: {e}")
-        
+        print(f"  ⚠️ Playwright 备用抓取异常: {e}")
+
     return None
 
 # ==================== 4. 国产详情页解析模块 ====================
@@ -114,23 +102,34 @@ def parse_domestic_movie_detail(movie_url):
     if not html:
         return None
 
+    # 拦截 Cloudflare 报错或登录页
+    if "520:" in html or "502" in html or "just a moment" in html.lower():
+        return None
+
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        title_tag = soup.find('h1') or soup.find('h2')
+        # 提取标题
+        title_tag = soup.find('h1') or soup.find('h2', class_='entry-title')
         title = title_tag.text.strip() if title_tag else "未知标题"
+        
+        # 从 URL 路径中提取唯一 Code（例如 /video/mnsc-mb-066/ -> MNSC-MB-066）
         code = movie_url.strip('/').split('/')[-1].upper()
 
+        # 提取封面图
         cover_url = ""
-        cover_img = soup.find('img', class_='cover') or soup.find('meta', property='og:image')
+        cover_img = soup.find('img', class_='attachment-large') or soup.find('meta', property='og:image')
         if cover_img:
             cover_url = cover_img.get('content') if cover_img.name == 'meta' else cover_img.get('src', '')
 
+        # 提取剧照预览图
         preview_images = []
-        for img in soup.select('.photos img, .preview img'):
+        for img in soup.select('.entry-content img, .photos img, .preview img'):
             src = img.get('src')
-            if src: preview_images.append(src)
+            if src and src != cover_url:
+                preview_images.append(src)
 
+        # 提取磁力链接
         magnets = []
         for a in soup.find_all('a', href=True):
             link = a['href']
@@ -150,10 +149,10 @@ def parse_domestic_movie_detail(movie_url):
             "release_date": time.strftime("%Y-%m-%d"),
             "duration": "120",
             "director": "",
-            "studio": "Madouqu",
+            "studio": "麻豆传媒",
             "series": "",
             "actors": [],
-            "genres": ["国产传媒"],
+            "genres": ["国产传媒", "麻豆传媒"],
             "preview_images": preview_images,
             "magnets": magnets,
             "rating_score": 0.0,
@@ -179,7 +178,7 @@ def post_movie_to_api(movie_data):
     except Exception as e:
         return False, str(e)
 
-# ==================== 6. 增量自适应多页扫描控制流 ====================
+# ==================== 6. 🌟 对齐真实 HTML 的增量自适应多页扫描 ====================
 def start_domestic_scan():
     existing_codes = get_existing_codes_from_api()
     new_movies = []
@@ -191,11 +190,11 @@ def start_domestic_scan():
     print("🚀 开始国产区增量自适应多页扫描...")
 
     while True:
+        # 🌟 对齐格式：https://madouqu.com/modelmedia/page/2/
         url = f"{DOMESTIC_HOST}/modelmedia/page/{page}/"
         print(f"📦 正在扫描国产列表页 (Page {page}): {url}")
         
         html = fetch_html_content(url)
-        
         if not html:
             print(f"❌ 访问第 {page} 页失败（请求为空）")
             break
@@ -203,18 +202,25 @@ def start_domestic_scan():
         soup = BeautifulSoup(html, 'html.parser')
         page_cards = []
         
-        for a in soup.select("a[href*='/modelmedia/']"):
-            href = a.get("href")
-            if href and href != "/modelmedia/" and href.count('/') >= 2:
-                detail_url = href if href.startswith('http') else DOMESTIC_HOST + href
-                code = href.strip('/').split('/')[-1].upper()
-                if code and not any(m["code"] == code for m in page_cards):
+        # 🌟【精准对齐】：根据你提供的源码，精确匹配 article.post 卡片及其内部的 h2.entry-title a 链接
+        for article in soup.select("article.post, .posts-wrapper article"):
+            a_tag = article.select_one("h2.entry-title a") or article.select_one("a[href*='/video/']")
+            if a_tag:
+                detail_url = a_tag.get("href")
+                if detail_url and not detail_url.startswith('http'):
+                    detail_url = DOMESTIC_HOST + detail_url
+                
+                # 从 /video/mnsc-mb-066/ 提取出大写的 MNSC-MB-066 作为唯一 Code
+                slug = detail_url.strip('/').split('/')[-1]
+                code = slug.upper()
+                
+                if code and detail_url and not any(m["code"] == code for m in page_cards):
                     page_cards.append({"code": code, "url": detail_url})
 
-        print(f"🔍 [Debug] 当前页通过选择器初步提取到链接数: {len(page_cards)}")
+        print(f"🔍 [Debug] 当前页通过精准选择器提取到视频数: {len(page_cards)}")
 
         if not page_cards:
-            print(f"🏁 扫描到第 {page} 页时没有发现任何链接，打印当前页面前 400 字符供分析：\n{html[:400]}")
+            print(f"🏁 扫描到第 {page} 页时没有发现任何视频卡片，自动结束扫描。")
             break
 
         page_new_count = 0
