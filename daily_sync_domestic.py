@@ -99,8 +99,12 @@ def fetch_html_content(url):
     return None
 
 # ==================== 4. 国产详情页解析模块 ====================
-def parse_domestic_movie_detail(movie_url):
+def parse_domestic_movie_detail(movie_url, pre_release_date):
     html = fetch_html_content(movie_url)
+    # 正则提取 URL 中的唯一识别 ID（例如：tx4423），作为电影的 code (番号)
+    id_match = re.search(r'/video/([^/]+)', html)
+    jdb_code = id_match.group(1).upper() if id_match else f"MADOU-{str(int(time.time()))}"
+    print(f"\n [采集线程] 正在抓取电影详情(识别码: {jdb_code})")
     if not html:
         return None
 
@@ -109,10 +113,6 @@ def parse_domestic_movie_detail(movie_url):
         
         title_tag = soup.find('h1') or soup.find('h2') or soup.find('h3', class_='entry-title')
         title = title_tag.text.strip() if title_tag else "未知标题"
-        code = movie_url.strip('/').split('/')[-1].upper()
-
-        if code.isdigit() or len(code) < 3:
-            return None
 
         # 🌟【100% 精准提取封面】：
         # 1. 优先寻找文章内容区域、媒体容器或文章内的第一张带 wp-image- 的大图
@@ -139,42 +139,62 @@ def parse_domestic_movie_detail(movie_url):
                     break
 
         if cover_url and cover_url.startswith('//'):
-            cover_url = 'https:' + cover_url
+            cover_url = 'https:' + cover_url           
 
-        # 🌟【精准提取并清洗日期】：适配 "最后更新：8月5日 08:12" 或标准格式
-        release_date = time.strftime("%Y-%m-%d") # 默认保底为今天
-        
-        date_tag = soup.find('p', class_='post-modified-info') or soup.find('time')
-        if not date_tag:
-            # 备用：在全页寻找包含 "最后更新：" 或时间特征的标签
-            for p in soup.find_all(['p', 'span', 'div', 'time']):
-                txt = p.text.strip()
-                if "最后更新：" in txt or "发布时间" in txt or "日" in txt:
-                    date_tag = p
+        # 3.4 解析面包屑导航提取【片商】与【分类】
+        studio = ""
+        genres = []
+        breadcrumb_div = soup.find('div', class_='breadcrumbs')
+        if breadcrumb_div:
+            category_links = breadcrumb_div.find_all('a')
+            category_names = [a.text.strip() for a in category_links[1:]]
+            if category_names:
+                studio = category_names[-1]
+                genres = category_names
+
+        # 3.5 精准番号（code）提取：优先在文本中寻找“麻豆番号”标签
+        code = ""
+        entry_content = soup.find('div', class_='entry-content')
+        if entry_content:
+            for p in entry_content.find_all('p'):
+                p_text = p.get_text().strip()
+                match = re.search(r'(?:麻豆)?番号\s*[：:]\s*([a-zA-Z0-9_-]+)', p_text)
+                if match:
+                    code = match.group(1).strip().upper()
+                    print(f"  🔍 从正文中精确捕获到官方番号: {code}")
                     break
-        
-        if date_tag:
-            date_text = date_tag.text.strip()
-            # 尝试匹配 2026-06-24 或 2026/06/24 格式
-            standard_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', date_text)
-            if standard_match:
-                y, m, d = standard_match.groups()
-                release_date = f"{y}-{int(m):02d}-{int(d):02d}"
-            else:
-                # 尝试匹配 "8月5日" 或 "08月05日" 这种中文日期格式
-                chinese_match = re.search(r'(\d{1,2})月(\d{1,2})日', date_text)
-                if chinese_match:
-                    m, d = chinese_match.groups()
-                    current_year = time.strftime("%Y") # 自动获取当前年份
-                    release_date = f"{current_year}-{int(m):02d}-{int(d):02d}"
-                    
 
-        preview_images = []
-        for img in soup.select('.photos img, .preview img, .entry-content img'):
-            src = img.get('src') or img.get('data-src')
-            if src and "avatar" not in src and "logo" not in src:
-                if src.startswith('//'): src = 'https:' + src
-                preview_images.append(src)
+        if not code:
+            code = jdb_code
+            print(f"  ℹ️ 该页面无番号标注，已降级使用路径标识符: {code}")
+
+        # 3.6 多演员（actors）提取
+        actors = []
+        tags_div = soup.find('div', class_='entry-tags')
+        if tags_div:
+            for a in tags_div.find_all('a'):
+                actor_name = a.text.strip()
+                if actor_name and actor_name not in actors:
+                    actors.append(actor_name)
+
+        if not actors and entry_content:
+            for p in entry_content.find_all('p'):
+                p_text = p.get_text().strip()
+                match = re.search(r'(?:麻豆女郎|演员)\s*[：:]\s*(.+)', p_text)
+                if match:
+                    raw_actors = match.group(1).strip()
+                    split_actors = re.split(r'[、，,\s/]+', raw_actors)
+                    for name in split_actors:
+                        name = name.strip()
+                        if name and name not in actors:
+                            actors.append(name)
+                    break
+
+        if actors:
+            print(f"  👥 提取到该片的参演演员: {actors}")
+
+        # 3.7 提取剧照列表
+        preview_images = [cover_url] if cover_url else []
 
         magnets = []
         for a in soup.find_all('a', href=True):
@@ -192,13 +212,13 @@ def parse_domestic_movie_detail(movie_url):
             "code": code,
             "title": title,
             "cover_url": cover_url,
-            "release_date": release_date,
-            "duration": "120",
+            "release_date": pre_release_date,
+            "duration": "",
             "director": "",
-            "studio": "Madouqu",
+            "studio": studio,
             "series": "",
-            "actors": [],
-            "genres": ["国产传媒"],
+            "actors": actors,
+            "genres": genres,
             "preview_images": preview_images,
             "magnets": magnets,
             "rating_score": 0.0,
@@ -263,6 +283,14 @@ def start_domestic_scan():
                 
             if not detail_url.startswith('http'):
                 detail_url = DOMESTIC_HOST + detail_url
+
+            # 🌟 提取列表卡片中的绝对日期 (如 2026-08-05)
+            release_date = time.strftime("%Y-%m-%d")
+            time_tag = article.select_one("time[datetime]")
+            if time_tag and time_tag.get("datetime"):
+                dt_str = time_tag.get("datetime")
+                if len(dt_str) >= 10:
+                    release_date = dt_str[:10]
             
             # 🌟【精准提取番号】：从 title 属性（如 "MNSC-MB-066 落地窗前蜜穴榨精"）中通过正则切出标准番号
             raw_title = a_tag.get("title") or a_tag.text.strip()
@@ -274,7 +302,8 @@ def start_domestic_scan():
                 code = detail_url.strip('/').split('/')[-1].upper()
 
             if code and not any(m["code"] == code for m in page_cards):
-                page_cards.append({"code": code, "url": detail_url})
+                # 🌟 将 url 和 release_date 一起打包存入列表
+                page_cards.append({"code": code, "url": detail_url, "release_date": release_date})
 
         print(f"🔍 [Debug] 当前页通过精确定位成功提取到视频数: {len(page_cards)}")
 
@@ -315,9 +344,10 @@ def start_domestic_scan():
     for m in new_movies:
         code = m["code"]
         url = m["url"]
+        release_date = m["release_date"] # 获取列表页的日期
         try:
-            print(f"  ⏳ 正在抓取详情页: {code} -> {url}")
-            movie_data = parse_domestic_movie_detail(url)
+            print(f"  ⏳ 正在抓取详情页: {code} -> {url}") (日期: {release_date})")
+            movie_data = parse_domestic_movie_detail(url, release_date)
             if movie_data:
                 success, error_msg = post_movie_to_api(movie_data)
                 if success:
