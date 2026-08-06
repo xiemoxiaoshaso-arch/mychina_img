@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import requests # 🌟【核心修复】：确保导入了 requests 库供 FlareSolverr 通信使用
 from curl_cffi import requests as curl_requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from playwright.sync_api import sync_playwright
 
 # ==================== 1. 国产区专属配置区 ====================
 DOMESTIC_HOST = "https://madouqu.com"
@@ -66,39 +67,43 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 带有重试机制的 FlareSolverr 请求器 ====================
+# ==================== 3. 🌟 纯 Python 无头浏览器过盾请求器 ====================
 def fetch_html_content(url):
-    flaresolverr_url = "http://localhost:8191/v1"
-    
-    payload = {
-        "cmd": "request.get",
-        "url": url,
-        "maxTimeout": 60000
-    }
-    
-    print(f"📡 正在通过本地 FlareSolverr 免费过盾请求: {url}")
-    
-    # 🌟 增加 3 次重试循环，防止偶发的无头浏览器超时
-    for attempt in range(1, 4):
-        try:
-            resp = requests.post(flaresolverr_url, json=payload, timeout=80)
-            if resp.status_code == 200:
-                result = resp.json()
-                if result.get("status") == "ok":
-                    html_text = result.get("solution", {}).get("html", "")
-                    if html_text and len(html_text) > 100:
-                        print(f"📡 [FlareSolverr 成功] 返回网页前 300 字符:\n{html_text[:300]}")
-                        return html_text
-                    else:
-                        print(f"  ⚠️ 第 {attempt} 次尝试: FlareSolverr 返回的 HTML 内容为空，正在重试...")
-                else:
-                    print(f"  ⚠️ 第 {attempt} 次尝试: 状态异常 {result.get('status')}，正在重试...")
+    """
+    使用轻量级 Python 浏览器自动化工具 Playwright，模拟真实浏览器自动过盾并获取动态渲染后的 HTML
+    """
+    print(f"📡 正在通过 Python 无头浏览器访问: {url}")
+    try:
+        with sync_playwright() as p:
+            # 启动无头 Chromium 浏览器
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800}
+            )
+            page = context.new_page()
+            
+            # 访问目标网址，设置 60 秒超时以防 Cloudflare 盾牌卡顿
+            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            
+            # 🌟 核心智能等待：如果遇到 Cloudflare 5秒盾，自动在后台等待其跳转进入主站
+            try:
+                # 等待页面中出现电影卡片或标题元素（最多等待 12 秒）
+                page.wait_for_selector(".item, h1, .movie-list", timeout=12000)
+            except Exception:
+                # 如果没抓到选择器也强制暂停 3 秒，确保 JS 执行完毕
+                time.sleep(3)
+                
+            html_text = page.content()
+            browser.close()
+            
+            if html_text and len(html_text) > 500:
+                print(f"📡 [浏览器抓取成功] 返回网页前 300 字符:\n{html_text[:300]}")
+                return html_text
             else:
-                print(f"  ⚠️ 第 {attempt} 次尝试: 接口 HTTP 异常 {resp.status_code}，正在重试...")
-        except Exception as e:
-            print(f"  ⚠️ 第 {attempt} 次尝试发生异常: {e}，正在重试...")
-        
-        time.sleep(5) # 重试前休息 5 秒
+                print("  ⚠️ 浏览器抓取到的页面内容过短或为空。")
+    except Exception as e:
+        print(f"  ❌ Playwright 浏览器渲染发生异常: {e}")
         
     return None
 
