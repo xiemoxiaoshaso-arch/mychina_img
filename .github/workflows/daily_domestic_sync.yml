@@ -1,4 +1,4 @@
-name: Daily Domestic Sync to D1 (Free FlareSolverr)
+name: Daily Domestic Sync to D1
 
 on:
   schedule:
@@ -18,23 +18,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Python Dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install curl_cffi beautifulsoup4 requests
-
-      - name: Start FlareSolverr Service (Free CF Bypass)
-        # 🌟 在 GitHub 虚拟机后台拉起开源过盾神器
-        run: |
-          docker run -d \
-            --name flaresolverr \
-            -p 8191:8191 \
-            -e LOG_LEVEL=info \
-            ghcr.io/flaresolverr/flaresolverr:latest
-          
-          # 等待 60 秒让 FlareSolverr 容器完全启动初始化
-          echo "Waiting for FlareSolverr to start..."
-          sleep 60
+          pip install playwright beautifulsoup4 requests
+          # 🌟 自动在 Linux 容器中安装轻量无头浏览器及其系统依赖 [3]
+          playwright install --with-deps chromium
 
       - name: Execute Domestic Sync to D1
         env:
