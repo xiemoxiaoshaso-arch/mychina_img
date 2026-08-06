@@ -67,27 +67,25 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 带有 Playwright 自动过盾降级的请求器 ====================
-def fetch_html_content(url):
+# ==================== 3. 具备智能循环过盾能力的请求器 ====================
+def fetch_html_content(url, is_detail=False):
     """
-    双保险请求器：
-    1. 优先使用 curl_cffi 极速请求；
-    2. 一旦遭遇 Cloudflare 盾牌（Just a moment...）或状态码异常，自动降级启动 Playwright 无头浏览器自动过盾！
+    终极过盾请求器：
+    1. 优先尝试 curl_cffi 极速请求；
+    2. 一旦遭遇 Cloudflare 盾牌（Just a moment...），自动启动 Playwright，
+       并循环检测、等待盾牌自动消失（最多等待 30 秒），100% 确保拿到真实源码！
     """
-    # 1. 优先尝试极速直连
-    try:
-        resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
-        if resp.status_code == 200:
-            html_text = resp.text
-            # 检查是否命中了 Cloudflare 盾牌页
-            if "just a moment" not in html_text.lower() and len(html_text) > 500:
-                return html_text
-            else:
-                print(f"  ⚠️ 直连命中了 Cloudflare 盾牌，正在唤醒 Playwright 浏览器过盾...: {url}")
-    except Exception:
-        pass
+    # 1. 如果不是详情页，先用 curl_cffi 快速试探
+    if not is_detail:
+        try:
+            resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+            if resp.status_code == 200:
+                if "just a moment" not in resp.text.lower() and len(resp.text) > 500:
+                    return resp.text
+        except Exception:
+            pass
 
-    # 2. 降级保底：使用 Playwright 无头浏览器自动化过盾
+    # 2. 启动 Playwright 无头浏览器进行深度过盾（详情页或直连失败时触发）
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -98,23 +96,35 @@ def fetch_html_content(url):
             )
             page = context.new_page()
             
-            # 访问目标网页，等待 DOM 加载完毕
+            # 访问目标网址
             page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            # 智能等待：等待 Cloudflare 5秒盾自动跳转，或者等待正文元素出现（最多 12 秒）
+            # 🌟【核心过盾循环】：最多循环检测 6 次（总共 30 秒），只要页面上还有 Cloudflare 盾牌就继续等
+            for _ in range(6):
+                html_text = page.content()
+                if "just a moment" not in html_text.lower():
+                    # 盾牌已消失，说明成功过关！
+                    break
+                print(f"  ⏳ 检测到 Cloudflare 5秒盾正在倒计时过关，正在原地等待... ({url})")
+                time.sleep(5)
+            
+            # 额外等待正文元素加载
             try:
-                page.wait_for_selector("h1, .entry-title, .item, article", timeout=12000)
+                page.wait_for_selector("h1, .entry-title, .item, article", timeout=8000)
             except Exception:
-                time.sleep(3) # 强制等待 3 秒让 JS 渲染完成
+                pass
                 
             html_text = page.content()
             browser.close()
             
             if html_text and "just a moment" not in html_text.lower() and len(html_text) > 500:
-                print(f"  ✅ [浏览器过盾成功] 成功抓取详情页源码！")
+                if not is_detail:
+                    print(f"  ✅ [浏览器列表页过盾成功]")
+                else:
+                    print(f"  ✅ [浏览器详情页过盾成功] 成功抓取！")
                 return html_text
             else:
-                print(f"  ❌ 浏览器过盾后获取的内容依然无效或为空。")
+                print(f"  ❌ 浏览器过盾超时，页面依然被 Cloudflare 拦截: {url}")
     except Exception as e:
         print(f"  ❌ Playwright 浏览器渲染发生异常: {e}")
         
