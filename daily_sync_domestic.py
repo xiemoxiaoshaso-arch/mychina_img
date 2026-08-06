@@ -114,24 +114,29 @@ def parse_domestic_movie_detail(movie_url):
         if code.isdigit() or len(code) < 3:
             return None
 
-        # 🌟【精准封面提取】：1. 优先从 og:image 抓取；2. 其次抓取 article 或正文内的第一张大图
+        # 🌟【100% 精准提取封面】：
+        # 1. 优先寻找文章内容区域、媒体容器或文章内的第一张带 wp-image- 的大图
         cover_url = ""
-        meta_img = soup.find('meta', property='og:image')
-        if meta_img and meta_img.get('content'):
-            cover_url = meta_img.get('content')
-        else:
-            # 匹配 WordPress 文章内部的常规图片（对齐你提供的 wp-image-* 结构）
-            cover_img_tag = soup.select_one("article.post img, .post img, .entry-content img, .site-main img")
-            if cover_img_tag:
-                cover_url = cover_img_tag.get('src') or cover_img_tag.get('data-src', '')
-            
-            # 保底策略：如果还没找到，遍历页面中所有包含 wp-content/uploads 的图片，取第一张
-            if not cover_url:
-                for img in soup.find_all('img', src=True):
-                    src = img.get('src', '')
-                    if "/wp-content/uploads/" in src and not any(x in src.lower() for x in ['avatar', 'logo', 'icon', 'banner', 'pixel', 'spacer', 'loading']):
-                        cover_url = src
-                        break
+        cover_img = (
+            soup.select_one("article.post img[class*='wp-image-']") or
+            soup.select_one(".entry-media img") or
+            soup.select_one(".entry-content img") or
+            soup.find('meta', property='og:image')
+        )
+        
+        if cover_img:
+            if cover_img.name == 'meta':
+                cover_url = cover_img.get('content', '')
+            else:
+                cover_url = cover_img.get('src') or cover_img.get('data-src', '')
+        
+        # 2. 如果上面没找到，全页遍历寻找第一张包含 /wp-content/uploads/ 的有效大图
+        if not cover_url or "avatar" in cover_url.lower():
+            for img in soup.find_all('img'):
+                src = img.get('src') or img.get('data-src', '')
+                if src and '/wp-content/uploads/' in src and not any(x in src.lower() for x in ['avatar', 'logo', 'icon', 'spacer', 'pixel', 'banner']):
+                    cover_url = src
+                    break
 
         if cover_url and cover_url.startswith('//'):
             cover_url = 'https:' + cover_url
