@@ -205,43 +205,36 @@ def start_domestic_scan():
         soup = BeautifulSoup(html, 'html.parser')
         page_cards = []
         
-        # 🌟【极致严谨】：先精确定位到 class="container" 的容器，再寻找其内部的 class="row"
-        container = soup.find('div', class_='container')
-        target_area = container.find('div', class_='row') if container else soup.find('div', class_='row')
-        
-        if target_area:
-            # 在锁定的精准 row 区域内遍历每一个独立文章卡片 article.post
-            for article in target_area.select("article.post"):
-                # 获取标题标签（内含真正的详情页链接、标题文本及规范的番号 title）
-                title_a = article.select_one("h2.entry-title a[href*='/video/']")
-                if not title_a:
-                    # 备用：如果没有 h2，则退其次寻找图片外层的 a 链接
-                    title_a = article.select_one("a[href*='/video/']")
+        # 🌟【完全对齐源码】：精准遍历每一个 <article class="post"> 卡片
+        for article in soup.select("article.post"):
+            # 提取标题处的链接（包含 /video/ 的 a 标签）
+            a_tag = article.select_one("h2.entry-title a[href*='/video/']")
+            if not a_tag:
+                a_tag = article.select_one("a[href*='/video/']")
                 
-                if not title_a:
-                    continue
-                    
-                detail_url = title_a.get("href")
-                if not detail_url:
-                    continue
-                    
-                if not detail_url.startswith('http'):
-                    detail_url = DOMESTIC_HOST + detail_url
+            if not a_tag:
+                continue
                 
-                # 🌟【提取规范番号】：优先从标题的 title 属性中切出规范的番号（如 MNSC-MB-066）
-                raw_title = title_a.get("title") or title_a.text.strip()
-                code_match = re.search(r'^([A-Z0-9\-]+)', raw_title, re.IGNORECASE)
-                code = code_match.group(1).upper() if code_match else ""
+            detail_url = a_tag.get("href")
+            if not detail_url:
+                continue
                 
-                # 保底：如果标题里没截取到，从 URL 尾部切
-                if not code or len(code) < 3:
-                    code = detail_url.strip('/').split('/')[-1].upper()
+            if not detail_url.startswith('http'):
+                detail_url = DOMESTIC_HOST + detail_url
+            
+            # 🌟【精准提取番号】：从 title 属性（如 "MNSC-MB-066 落地窗前蜜穴榨精"）中通过正则切出标准番号
+            raw_title = a_tag.get("title") or a_tag.text.strip()
+            code_match = re.search(r'^([A-Z0-9\-]+)', raw_title, re.IGNORECASE)
+            code = code_match.group(1).upper() if code_match else ""
+            
+            # 保底：如果标题里没截取到，从 URL 尾部切（如 mnsc-mb-066 -> MNSC-MB-066）
+            if not code or len(code) < 3:
+                code = detail_url.strip('/').split('/')[-1].upper()
 
-                # 确保格式合法且不重复
-                if code and not any(m["code"] == code for m in page_cards):
-                    page_cards.append({"code": code, "url": detail_url})
+            if code and not any(m["code"] == code for m in page_cards):
+                page_cards.append({"code": code, "url": detail_url})
 
-        print(f"🔍 [Debug] 当前页通过精准选择器提取到视频数: {len(page_cards)}")
+        print(f"🔍 [Debug] 当前页通过精确定位成功提取到视频数: {len(page_cards)}")
 
         if not page_cards:
             print(f"🏁 扫描到第 {page} 页时没有发现任何链接，自动结束扫描。")
