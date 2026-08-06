@@ -346,7 +346,7 @@ def start_domestic_scan():
         url = m["url"]
         release_date = m["release_date"] # 获取列表页的日期
         try:
-            print(f"  ⏳ 正在抓取详情页: {code} -> {url}") (日期: {release_date})")
+            print(f"  ⏳ 正在抓取详情页: {code} -> {url} (日期: {release_date})")
             movie_data = parse_domestic_movie_detail(url, release_date)
             if movie_data:
                 success, error_msg = post_movie_to_api(movie_data)
