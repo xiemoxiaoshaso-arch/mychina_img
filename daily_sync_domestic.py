@@ -89,7 +89,7 @@ def fetch_html_content(url):
             browser.close()
             
             if html_text and len(html_text) > 500:
-                print(f"📡 [浏览器抓取成功] 返回网页前 30000 字符:\n{html_text[:30000]}")
+                print(f"📡 [浏览器抓取成功] 返回网页前 300 字符:\n{html_text[:300]}")
                 return html_text
             else:
                 print("  ⚠️ 浏览器抓取到的页面内容过短或为空。")
@@ -107,12 +107,6 @@ def parse_domestic_movie_detail(movie_url):
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        # 拦截 Cloudflare 错误页
-        html_lower = html.lower()
-        if "520:" in html_lower or "502" in html_lower or "just a moment" in html_lower:
-            print(f"  ❌ [拦截废弃] 详情页遭遇防爬盾牌，拒绝入库！")
-            return None
-
         title_tag = soup.find('h1') or soup.find('h2') or soup.find('h3', class_='entry-title')
         title = title_tag.text.strip() if title_tag else "未知标题"
         code = movie_url.strip('/').split('/')[-1].upper()
