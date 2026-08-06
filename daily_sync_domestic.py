@@ -15,9 +15,6 @@ from playwright.sync_api import sync_playwright
 # ==================== 1. 国产区专属配置区 ====================
 DOMESTIC_HOST = "https://madouqu.com"
 
-# 安全并发数
-MAX_WORKERS = 3
-
 # 🌟 从环境变量中读取国产区 Worker API 密钥
 CF_WORKER_DOMESTIC_API = os.getenv("CF_WORKER_DOMESTIC_API") # 例如 https://omchina.tjshida.workers.dev/api/movie
 CF_SECRET_TOKEN = os.getenv("CF_SECRET_TOKEN")
@@ -67,141 +64,80 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 具备智能循环过盾能力的请求器 ====================
-def fetch_html_content(url, is_detail=False):
+# ==================== 3. 🌟 增强型 Playwright 无头浏览器过盾器 ====================
+def fetch_html_content(url):
     """
-    终极过盾请求器：
-    1. 优先尝试 curl_cffi 极速请求；
-    2. 一旦遭遇 Cloudflare 盾牌（Just a moment...），自动启动 Playwright，
-       并循环检测、等待盾牌自动消失（最多等待 30 秒），100% 确保拿到真实源码！
+    使用 Playwright 模拟真实浏览器，设置 networkidle 等待状态，完美过盾
     """
-    # 1. 如果不是详情页，先用 curl_cffi 快速试探
-    if not is_detail:
-        try:
-            resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
-            if resp.status_code == 200:
-                if "just a moment" not in resp.text.lower() and len(resp.text) > 500:
-                    return resp.text
-        except Exception:
-            pass
-
-    # 2. 启动 Playwright 无头浏览器进行深度过盾（详情页或直连失败时触发）
+    print(f"📡 正在通过无头浏览器访问: {url}")
     try:
-        from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent=HEADERS["User-Agent"],
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
                 viewport={"width": 1280, "height": 800}
             )
             page = context.new_page()
             
-            # 访问目标网址
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            # 访问网页，等待网络完全空闲（代表 Cloudflare 5秒盾已经自动解开并渲染完毕）
+            page.goto(url, timeout=60000, wait_until="networkidle")
             
-            # 🌟【核心过盾循环】：最多循环检测 6 次（总共 30 秒），只要页面上还有 Cloudflare 盾牌就继续等
-            for _ in range(6):
-                html_text = page.content()
-                if "just a moment" not in html_text.lower():
-                    # 盾牌已消失，说明成功过关！
-                    break
-                print(f"  ⏳ 检测到 Cloudflare 5秒盾正在倒计时过关，正在原地等待... ({url})")
-                time.sleep(5)
+            # 额外的保险等待
+            time.sleep(2)
             
-            # 额外等待正文元素加载
-            try:
-                page.wait_for_selector("h1, .entry-title, .item, article", timeout=8000)
-            except Exception:
-                pass
-                
             html_text = page.content()
             browser.close()
             
-            if html_text and "just a moment" not in html_text.lower() and len(html_text) > 500:
-                if not is_detail:
-                    print(f"  ✅ [浏览器列表页过盾成功]")
-                else:
-                    print(f"  ✅ [浏览器详情页过盾成功] 成功抓取！")
+            if html_text and len(html_text) > 500:
+                print(f"📡 [浏览器抓取成功] 返回网页前 300 字符:\n{html_text[:300]}")
                 return html_text
             else:
-                print(f"  ❌ 浏览器过盾超时，页面依然被 Cloudflare 拦截: {url}")
+                print("  ⚠️ 浏览器抓取到的页面内容过短或为空。")
     except Exception as e:
         print(f"  ❌ Playwright 浏览器渲染发生异常: {e}")
         
     return None
 
-# ==================== 4. 完美对齐 madouqu.com 真实结构的详情页解析模块 ====================
+# ==================== 4. 国产详情页解析模块 ====================
 def parse_domestic_movie_detail(movie_url):
-    time.sleep(random.uniform(1.0, 2.0))
     html = fetch_html_content(movie_url)
     if not html:
-        print(f"  ⚠️ [详情页抓取失败] 链接请求为空: {movie_url}")
-        return None
-
-    # 拦截 Cloudflare 报错或登录页
-    if "520:" in html or "502" in html or "just a moment" in html.lower():
-        print(f"  ⚠️ [详情页拦截] 遇到 Cloudflare 盾牌: {movie_url}")
         return None
 
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        # 1. 提取标题：从 <h1 class="entry-title"> 中获取
-        title_tag = soup.find('h1', class_='entry-title') or soup.find('h1')
+        # 拦截 Cloudflare 错误页
+        html_lower = html.lower()
+        if "520:" in html_lower or "502" in html_lower or "just a moment" in html_lower:
+            print(f"  ❌ [拦截废弃] 详情页遭遇防爬盾牌，拒绝入库！")
+            return None
+
+        title_tag = soup.find('h1') or soup.find('h2') or soup.find('h3', class_='entry-title')
         title = title_tag.text.strip() if title_tag else "未知标题"
-        
-        if "520" in title or "error" in title.lower() or "bad gateway" in title.lower():
-            print(f"  ❌ [拦截废弃] 解析出的标题异常 ({title})，拒绝入库！")
+        code = movie_url.strip('/').split('/')[-1].upper()
+
+        if code.isdigit() or len(code) < 3:
             return None
 
-        # 2. 提取番号（Code）：优先从正文 <p>麻豆番号：MNSC-MB-066</p> 中正则提取，若无则取 URL 尾缀
-        code = ""
-        page_text = soup.text
-        code_match = re.search(r'番号[：:]\s*([A-Za-z0-9\-_]+)', page_text)
-        if code_match:
-            code = code_match.group(1).strip().upper()
-        else:
-            code = movie_url.strip('/').split('/')[-1].upper()
-
-        if not code or len(code) < 2:
-            print(f"  ❌ [解析失败] 无法提取有效番号，链接: {movie_url}")
-            return None
-
-        # 3. 提取封面图：从正文内容区的第一个 <img> 中提取
         cover_url = ""
-        entry_content = soup.find('div', class_='entry-content')
-        if entry_content:
-            img_tag = entry_content.find('img')
-            if img_tag:
-                cover_url = img_tag.get('data-src') or img_tag.get('src', '')
+        cover_img = soup.find('img', class_='cover') or soup.find('meta', property='og:image') or soup.find('div', class_='entry-media').find('img') if soup.find('div', class_='entry-media') else None
+        if cover_img:
+            cover_url = cover_img.get('content') if cover_img.name == 'meta' else cover_img.get('src', '') or cover_img.get('data-src', '')
+            if cover_url and cover_url.startswith('//'):
+                cover_url = 'https:' + cover_url
 
-        if not cover_url:
-            meta_img = soup.find('meta', property='og:image')
-            if meta_img: cover_url = meta_img.get('content', '')
-
-        if cover_url and cover_url.startswith('//'):
-            cover_url = 'https:' + cover_url
-
-        # 4. 提取预览图 / 剧照
         preview_images = []
-        if entry_content:
-            for img in entry_content.find_all('img'):
-                src = img.get('data-src') or img.get('src', '')
-                if src and src != cover_url and not any(x in src.lower() for x in ['avatar', 'emoji', 'spacer']):
-                    if src.startswith('//'): src = 'https:' + src
-                    preview_images.append(src)
+        for img in soup.select('.photos img, .preview img, .entry-content img'):
+            src = img.get('src') or img.get('data-src')
+            if src and "avatar" not in src and "logo" not in src:
+                if src.startswith('//'): src = 'https:' + src
+                preview_images.append(src)
 
-        # 5. 提取演员名字：从 .entry-tags a 或正文中提取
-        actors = []
-        tags_div = soup.find('div', class_='entry-tags')
-        if tags_div:
-            actors = [a.text.strip() for a in tags_div.find_all('a') if a.text.strip()]
-
-        # 6. 提取磁力链接
         magnets = []
         for a in soup.find_all('a', href=True):
             link = a['href']
-            if link and link.startswith('magnet:'):
+            if link.startswith('magnet:'):
                 magnets.append({
                     "title": title,
                     "link": link,
@@ -217,20 +153,17 @@ def parse_domestic_movie_detail(movie_url):
             "release_date": time.strftime("%Y-%m-%d"),
             "duration": "120",
             "director": "",
-            "studio": "麻豆传媒",
+            "studio": "Madouqu",
             "series": "",
-            "actors": actors,
-            "genres": ["国产传媒", "麻豆传媒"],
+            "actors": [],
+            "genres": ["国产传媒"],
             "preview_images": preview_images,
             "magnets": magnets,
             "rating_score": 0.0,
             "rating_users": 0,
             "preview_video_url": ""
         }
-    except Exception as e:
-        import traceback
-        print(f"  ❌ [解析详情页内部异常] 链接 {movie_url} 崩溃原因: {e}")
-        traceback.print_exc()
+    except Exception:
         return None
 
 # ==================== 5. 推送至 D1 API ====================
@@ -249,7 +182,7 @@ def post_movie_to_api(movie_data):
     except Exception as e:
         return False, str(e)
 
-# ==================== 6. 🌟 对齐真实 HTML 的增量自适应多页扫描 ====================
+# ==================== 6. 增量自适应多页扫描控制流（单线程稳健版） ====================
 def start_domestic_scan():
     existing_codes = get_existing_codes_from_api()
     new_movies = []
@@ -261,7 +194,6 @@ def start_domestic_scan():
     print("🚀 开始国产区增量自适应多页扫描...")
 
     while True:
-        # 🌟 对齐格式：https://madouqu.com/modelmedia/page/2/
         url = f"{DOMESTIC_HOST}/modelmedia/page/{page}/"
         print(f"📦 正在扫描国产列表页 (Page {page}): {url}")
         
@@ -273,25 +205,18 @@ def start_domestic_scan():
         soup = BeautifulSoup(html, 'html.parser')
         page_cards = []
         
-        # 🌟【精准对齐】：根据你提供的源码，精确匹配 article.post 卡片及其内部的 h2.entry-title a 链接
-        for article in soup.select("article.post, .posts-wrapper article"):
-            a_tag = article.select_one("h2.entry-title a") or article.select_one("a[href*='/video/']")
-            if a_tag:
-                detail_url = a_tag.get("href")
-                if detail_url and not detail_url.startswith('http'):
-                    detail_url = DOMESTIC_HOST + detail_url
-                
-                # 从 /video/mnsc-mb-066/ 提取出大写的 MNSC-MB-066 作为唯一 Code
-                slug = detail_url.strip('/').split('/')[-1]
-                code = slug.upper()
-                
-                if code and detail_url and not any(m["code"] == code for m in page_cards):
+        for a in soup.select("a[href*='/video/']"):
+            href = a.get("href")
+            if href and href.count('/') >= 2:
+                detail_url = href if href.startswith('http') else DOMESTIC_HOST + href
+                code = href.strip('/').split('/')[-1].upper()
+                if code and not any(m["code"] == code for m in page_cards):
                     page_cards.append({"code": code, "url": detail_url})
 
         print(f"🔍 [Debug] 当前页通过精准选择器提取到视频数: {len(page_cards)}")
 
         if not page_cards:
-            print(f"🏁 扫描到第 {page} 页时没有发现任何视频卡片，自动结束扫描。")
+            print(f"🏁 扫描到第 {page} 页时没有发现任何链接，自动结束扫描。")
             break
 
         page_new_count = 0
@@ -321,24 +246,27 @@ def start_domestic_scan():
         print("🎉【无漏网之鱼】国产区云端 D1 数据库已被补至最新，本轮无新增内容。")
         return
 
-    print(f"🌟 开始针对 【{len(new_movies)}】 部全新的国产视频进行并发详情页抓取与实时推送...")
+    print(f"🌟 发现 【{len(new_movies)}】 部全新的国产视频，开始串行安全抓取详情并实时推送...")
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(parse_domestic_movie_detail, m["url"]): m["code"] for m in new_movies}
-        for future in as_completed(futures):
-            code = futures[future]
-            try:
-                movie_data = future.result()
-                if movie_data:
-                    success, error_msg = post_movie_to_api(movie_data)
-                    if success:
-                        print(f"  ✅ [同步成功] 国产视频 [{code}] 已成功录入线上 D1 数据库")
-                    else:
-                        print(f"  ❌ [同步失败] 国产视频 [{code}] 推送失败: {error_msg}")
+    # 🌟 改为单线程串行安全抓取（彻底避免多开浏览器引起的内存崩溃和 Cloudflare 拦截）
+    for m in new_movies:
+        code = m["code"]
+        url = m["url"]
+        try:
+            print(f"  ⏳ 正在抓取详情页: {code} -> {url}")
+            movie_data = parse_domestic_movie_detail(url)
+            if movie_data:
+                success, error_msg = post_movie_to_api(movie_data)
+                if success:
+                    print(f"  ✅ [同步成功] 国产视频 [{code}] 已成功录入线上 D1 数据库")
                 else:
-                    print(f"  ❌ [解析失败] 标识码: {code}")
-            except Exception as exc:
-                print(f"  ❌ 标识码 {code} 线程崩溃: {exc}")
+                    print(f"  ❌ [同步失败] 国产视频 [{code}] 推送失败: {error_msg}")
+            else:
+                print(f"  ❌ [解析失败] 标识码: {code}")
+        except Exception as exc:
+            print(f"  ❌ 标识码 {code} 执行异常: {exc}")
+        
+        time.sleep(2) # 礼貌延时
 
     print("\n🎉【国产区每日增量同步任务全部执行成功！】")
 
