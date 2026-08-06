@@ -48,7 +48,7 @@ HEADERS = {
 # ==================== 2. 获取线上国产 D1 已有番号 ====================
 def get_existing_codes_from_api():
     print("🔍 正在拉取国产区线上 D1 数据库中的已入库番号大名单...")
-    url = f"{base_api}/api/movies?limit=100000"
+    url = f"{base_api}/api/recent-codes?limit=100"
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as response:
@@ -56,12 +56,12 @@ def get_existing_codes_from_api():
             res_data = json.loads(res_body)
             if res_data.get("success"):
                 existing = {row["code"].upper() for row in res_data.get("data", []) if "code" in row}
-                print(f"✅ 初始化成功！国产区云端数据库中已存在 {len(existing)} 部电影。")
+                print(f"✅ 初始化成功！成功加载最近的 {len(existing)} 个最新入库番号用于增量比对。")
                 return existing
             else:
                 print(f"⚠️ 初始化失败: {res_data.get('error')}")
     except Exception as e:
-        print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
+        print(f"⚠️ 无法通过 API 获取最近号码列表: {e}")
     return set()
 
 # ==================== 3. 🌟 增强型 Playwright 无头浏览器过盾器 ====================
