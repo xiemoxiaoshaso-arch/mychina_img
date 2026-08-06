@@ -48,7 +48,7 @@ HEADERS = {
 # ==================== 2. 获取线上国产 D1 已有番号 ====================
 def get_existing_codes_from_api():
     print("🔍 正在拉取国产区线上 D1 数据库中的已入库番号大名单...")
-    url = f"{base_api}/api/recent-codes?limit=100"
+    url = f"{base_api}/api/recent-codes?limit=100&studio_id=17"
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as response:
