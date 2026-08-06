@@ -21,7 +21,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install playwright beautifulsoup4 requests
+          pip install playwright beautifulsoup4 requests curl_cffi
           # 🌟 自动在 Linux 容器中安装轻量无头浏览器及其系统依赖 [3]
           playwright install --with-deps chromium
 
