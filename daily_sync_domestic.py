@@ -66,43 +66,34 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 🌟 增强型智能网络请求器（带全景诊断日志） ====================
+# ==================== 3. 🌟 接入免费开源 FlareSolverr 过盾器 ====================
 def fetch_html_content(url):
-    global SCRAPER_API_KEY
+    """
+    通过在 GitHub Actions 本地运行的 FlareSolverr 容器自动绕过 Cloudflare 5秒盾
+    """
+    flaresolverr_url = "http://localhost:8191/v1"
     
-    # 优先尝试通过 ScraperAPI 代理抓取
-    if SCRAPER_API_KEY:
-        masked_key = SCRAPER_API_KEY[:4] + "..." + SCRAPER_API_KEY[-4:] if len(SCRAPER_API_KEY) > 8 else "存在"
-        print(f"📡 [检测到 SCRAPER_API_KEY]: {masked_key}，正在走云端代理请求: {url}")
-        
-        # 暂时先不加 render=true，使用普通代理看看返回什么
-        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={quote(url, safe='')}&keep_headers=true"
-        
-        try:
-            req = urllib.request.Request(proxy_url, headers={"User-Agent": HEADERS["User-Agent"]})
-            with urllib.request.urlopen(req, timeout=45) as response:
-                html_text = response.read().decode('utf-8')
-                print(f"📡 [代理响应成功] 返回源码前 300 字符:\n{html_text[:300]}")
-                return html_text
-        except Exception as e:
-            print(f"  ⚠️ 住宅代理请求异常: {e}，正在尝试本地直连保底...")
-
-    # 备用直连方式
-    print(f"📡 正在尝试本地 curl_cffi 直连请求: {url}")
+    payload = {
+        "cmd": "request.get",
+        "url": url,
+        "maxTimeout": 60000
+    }
+    
+    print(f"📡 正在通过本地 FlareSolverr 免费过盾请求: {url}")
     try:
-        resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
-        print(f"📡 [直连响应] 状态码: {resp.status_code}")
+        resp = requests.post(flaresolverr_url, json=payload, timeout=70)
         if resp.status_code == 200:
-            print(f"📡 [直连源码前300字]:\n{resp.text[:300]}")
-            return resp.text
+            result = resp.json()
+            if result.get("status") == "ok":
+                html_text = result.get("solution", {}).get("html", "")
+                print(f"📡 [FlareSolverr 成功] 返回网页前 300 字符:\n{html_text[:300]}")
+                return html_text
+            else:
+                print(f"  ⚠️ FlareSolverr 返回状态异常: {result.get('status')}")
         else:
-            print(f"=================== 🔥 列表页拦截诊断日志 ===================")
-            print(f"🔥 返回的 HTTP 状态码: {resp.status_code}")
-            print(f"🔥 返回的 Headers:\n{json.dumps(dict(resp.headers), indent=2)}")
-            print(f"🔥 返回的源码前 500 字符:\n{resp.text[:500]}")
-            print("==========================================================")
+            print(f"  ⚠️ FlareSolverr 接口 HTTP 异常: {resp.status_code}")
     except Exception as e:
-        print(f"  ⚠️ 直连网络异常: {e}")
+        print(f"  ⚠️ 连接本地 FlareSolverr 发生异常: {e}")
         
     return None
 
