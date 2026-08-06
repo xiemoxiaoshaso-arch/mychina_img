@@ -141,6 +141,34 @@ def parse_domestic_movie_detail(movie_url):
         if cover_url and cover_url.startswith('//'):
             cover_url = 'https:' + cover_url
 
+        # 🌟【精准提取并清洗日期】：适配 "最后更新：8月5日 08:12" 或标准格式
+        release_date = time.strftime("%Y-%m-%d") # 默认保底为今天
+        
+        date_tag = soup.find('p', class_='post-modified-info') or soup.find('time')
+        if not date_tag:
+            # 备用：在全页寻找包含 "最后更新：" 或时间特征的标签
+            for p in soup.find_all(['p', 'span', 'div', 'time']):
+                txt = p.text.strip()
+                if "最后更新：" in txt or "发布时间" in txt or "日" in txt:
+                    date_tag = p
+                    break
+        
+        if date_tag:
+            date_text = date_tag.text.strip()
+            # 尝试匹配 2026-06-24 或 2026/06/24 格式
+            standard_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', date_text)
+            if standard_match:
+                y, m, d = standard_match.groups()
+                release_date = f"{y}-{int(m):02d}-{int(d):02d}"
+            else:
+                # 尝试匹配 "8月5日" 或 "08月05日" 这种中文日期格式
+                chinese_match = re.search(r'(\d{1,2})月(\d{1,2})日', date_text)
+                if chinese_match:
+                    m, d = chinese_match.groups()
+                    current_year = time.strftime("%Y") # 自动获取当前年份
+                    release_date = f"{current_year}-{int(m):02d}-{int(d):02d}"
+                    
+
         preview_images = []
         for img in soup.select('.photos img, .preview img, .entry-content img'):
             src = img.get('src') or img.get('data-src')
@@ -164,7 +192,7 @@ def parse_domestic_movie_detail(movie_url):
             "code": code,
             "title": title,
             "cover_url": cover_url,
-            "release_date": time.strftime("%Y-%m-%d"),
+            "release_date": release_date,
             "duration": "120",
             "director": "",
             "studio": "Madouqu",
