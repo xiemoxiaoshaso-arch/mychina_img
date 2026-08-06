@@ -66,11 +66,8 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 🌟 接入免费开源 FlareSolverr 过盾器 ====================
+# ==================== 3. 带有重试机制的 FlareSolverr 请求器 ====================
 def fetch_html_content(url):
-    """
-    通过在 GitHub Actions 本地运行的 FlareSolverr 容器自动绕过 Cloudflare 5秒盾
-    """
     flaresolverr_url = "http://localhost:8191/v1"
     
     payload = {
@@ -80,21 +77,28 @@ def fetch_html_content(url):
     }
     
     print(f"📡 正在通过本地 FlareSolverr 免费过盾请求: {url}")
-    try:
-        # 此处正常调用 requests 发送本地容器请求
-        resp = requests.post(flaresolverr_url, json=payload, timeout=70)
-        if resp.status_code == 200:
-            result = resp.json()
-            if result.get("status") == "ok":
-                html_text = result.get("solution", {}).get("html", "")
-                print(f"📡 [FlareSolverr 成功] 返回网页前 300 字符:\n{html_text[:300]}")
-                return html_text
+    
+    # 🌟 增加 3 次重试循环，防止偶发的无头浏览器超时
+    for attempt in range(1, 4):
+        try:
+            resp = requests.post(flaresolverr_url, json=payload, timeout=80)
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("status") == "ok":
+                    html_text = result.get("solution", {}).get("html", "")
+                    if html_text and len(html_text) > 100:
+                        print(f"📡 [FlareSolverr 成功] 返回网页前 300 字符:\n{html_text[:300]}")
+                        return html_text
+                    else:
+                        print(f"  ⚠️ 第 {attempt} 次尝试: FlareSolverr 返回的 HTML 内容为空，正在重试...")
+                else:
+                    print(f"  ⚠️ 第 {attempt} 次尝试: 状态异常 {result.get('status')}，正在重试...")
             else:
-                print(f"  ⚠️ FlareSolverr 返回状态异常: {result.get('status')}")
-        else:
-            print(f"  ⚠️ FlareSolverr 接口 HTTP 异常: {resp.status_code}")
-    except Exception as e:
-        print(f"  ⚠️ 连接本地 FlareSolverr 发生异常: {e}")
+                print(f"  ⚠️ 第 {attempt} 次尝试: 接口 HTTP 异常 {resp.status_code}，正在重试...")
+        except Exception as e:
+            print(f"  ⚠️ 第 {attempt} 次尝试发生异常: {e}，正在重试...")
+        
+        time.sleep(5) # 重试前休息 5 秒
         
     return None
 
