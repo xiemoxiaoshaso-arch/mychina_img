@@ -32,9 +32,9 @@ jobs:
             -e LOG_LEVEL=info \
             ghcr.io/flaresolverr/flaresolverr:latest
           
-          # 等待 10 秒让 FlareSolverr 容器完全启动初始化
+          # 等待 60 秒让 FlareSolverr 容器完全启动初始化
           echo "Waiting for FlareSolverr to start..."
-          sleep 10
+          sleep 60
 
       - name: Execute Domestic Sync to D1
         env:
