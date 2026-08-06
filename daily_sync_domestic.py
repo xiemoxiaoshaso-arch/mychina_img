@@ -67,32 +67,57 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 智能网页请求器（带 Playwright / Curl-Cffi 双保险） ====================
+# ==================== 3. 带有 Playwright 自动过盾降级的请求器 ====================
 def fetch_html_content(url):
-    # 优先使用直连加模拟指纹（madouqu.com 对 curl_cffi 的 chrome120 指纹兼容极好）
+    """
+    双保险请求器：
+    1. 优先使用 curl_cffi 极速请求；
+    2. 一旦遭遇 Cloudflare 盾牌（Just a moment...）或状态码异常，自动降级启动 Playwright 无头浏览器自动过盾！
+    """
+    # 1. 优先尝试极速直连
     try:
         resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
         if resp.status_code == 200:
-            if "Just a moment" not in resp.text and len(resp.text) > 500:
-                return resp.text
+            html_text = resp.text
+            # 检查是否命中了 Cloudflare 盾牌页
+            if "just a moment" not in html_text.lower() and len(html_text) > 500:
+                return html_text
+            else:
+                print(f"  ⚠️ 直连命中了 Cloudflare 盾牌，正在唤醒 Playwright 浏览器过盾...: {url}")
     except Exception:
         pass
 
-    # 备用：若直连受阻，尝试通过 Playwright 无头浏览器渲染
+    # 2. 降级保底：使用 Playwright 无头浏览器自动化过盾
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_context(user_agent=HEADERS["User-Agent"]).new_page()
-            page.goto(url, timeout=45000, wait_until="domcontentloaded")
-            time.sleep(2)
+            context = browser.new_context(
+                user_agent=HEADERS["User-Agent"],
+                viewport={"width": 1280, "height": 800}
+            )
+            page = context.new_page()
+            
+            # 访问目标网页，等待 DOM 加载完毕
+            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            
+            # 智能等待：等待 Cloudflare 5秒盾自动跳转，或者等待正文元素出现（最多 12 秒）
+            try:
+                page.wait_for_selector("h1, .entry-title, .item, article", timeout=12000)
+            except Exception:
+                time.sleep(3) # 强制等待 3 秒让 JS 渲染完成
+                
             html_text = page.content()
             browser.close()
-            if html_text and len(html_text) > 500:
+            
+            if html_text and "just a moment" not in html_text.lower() and len(html_text) > 500:
+                print(f"  ✅ [浏览器过盾成功] 成功抓取详情页源码！")
                 return html_text
+            else:
+                print(f"  ❌ 浏览器过盾后获取的内容依然无效或为空。")
     except Exception as e:
-        print(f"  ⚠️ Playwright 备用抓取异常: {e}")
-
+        print(f"  ❌ Playwright 浏览器渲染发生异常: {e}")
+        
     return None
 
 # ==================== 4. 完美对齐 madouqu.com 真实结构的详情页解析模块 ====================
