@@ -7,6 +7,7 @@ import random
 import urllib.request
 from urllib.parse import quote
 from bs4 import BeautifulSoup
+import requests # 🌟【核心修复】：确保导入了 requests 库供 FlareSolverr 通信使用
 from curl_cffi import requests as curl_requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -19,7 +20,6 @@ MAX_WORKERS = 3
 # 🌟 从环境变量中读取国产区 Worker API 密钥
 CF_WORKER_DOMESTIC_API = os.getenv("CF_WORKER_DOMESTIC_API") # 例如 https://omchina.tjshida.workers.dev/api/movie
 CF_SECRET_TOKEN = os.getenv("CF_SECRET_TOKEN")
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
 missing_vars = []
 if not CF_WORKER_DOMESTIC_API: missing_vars.append("CF_WORKER_DOMESTIC_API")
@@ -81,6 +81,7 @@ def fetch_html_content(url):
     
     print(f"📡 正在通过本地 FlareSolverr 免费过盾请求: {url}")
     try:
+        # 此处正常调用 requests 发送本地容器请求
         resp = requests.post(flaresolverr_url, json=payload, timeout=70)
         if resp.status_code == 200:
             result = resp.json()
