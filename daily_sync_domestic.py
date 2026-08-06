@@ -205,20 +205,41 @@ def start_domestic_scan():
         soup = BeautifulSoup(html, 'html.parser')
         page_cards = []
         
-        # 🌟【极致严谨】：先定位到 class="container" 的容器，再寻找其内部的 class="row"
+        # 🌟【极致严谨】：先精确定位到 class="container" 的容器，再寻找其内部的 class="row"
         container = soup.find('div', class_='container')
         target_area = container.find('div', class_='row') if container else soup.find('div', class_='row')
         
         if target_area:
-            # 在锁定的精准 row 区域内寻找所有视频详情链接
-            for a in target_area.select("a[href*='/video/']"):
-                href = a.get("href")
-                # 排除标签页 /tag/，且过滤掉根路径 /video/
-                if href and "/tag/" not in href and href != "/video/":
-                    detail_url = href if href.startswith('http') else DOMESTIC_HOST + href
-                    code = href.strip('/').split('/')[-1].upper()
-                    if code and not any(m["code"] == code for m in page_cards):
-                        page_cards.append({"code": code, "url": detail_url})
+            # 在锁定的精准 row 区域内遍历每一个独立文章卡片 article.post
+            for article in target_area.select("article.post"):
+                # 获取标题标签（内含真正的详情页链接、标题文本及规范的番号 title）
+                title_a = article.select_one("h2.entry-title a[href*='/video/']")
+                if not title_a:
+                    # 备用：如果没有 h2，则退其次寻找图片外层的 a 链接
+                    title_a = article.select_one("a[href*='/video/']")
+                
+                if not title_a:
+                    continue
+                    
+                detail_url = title_a.get("href")
+                if not detail_url:
+                    continue
+                    
+                if not detail_url.startswith('http'):
+                    detail_url = DOMESTIC_HOST + detail_url
+                
+                # 🌟【提取规范番号】：优先从标题的 title 属性中切出规范的番号（如 MNSC-MB-066）
+                raw_title = title_a.get("title") or title_a.text.strip()
+                code_match = re.search(r'^([A-Z0-9\-]+)', raw_title, re.IGNORECASE)
+                code = code_match.group(1).upper() if code_match else ""
+                
+                # 保底：如果标题里没截取到，从 URL 尾部切
+                if not code or len(code) < 3:
+                    code = detail_url.strip('/').split('/')[-1].upper()
+
+                # 确保格式合法且不重复
+                if code and not any(m["code"] == code for m in page_cards):
+                    page_cards.append({"code": code, "url": detail_url})
 
         print(f"🔍 [Debug] 当前页通过精准选择器提取到视频数: {len(page_cards)}")
 
