@@ -89,7 +89,7 @@ def fetch_html_content(url):
             browser.close()
             
             if html_text and len(html_text) > 500:
-                print(f"📡 [浏览器抓取成功] 返回网页前 300 字符:\n{html_text[:300]}")
+                print(f"📡 [浏览器抓取成功] 返回网页前 30000 字符:\n{html_text[:30000]}")
                 return html_text
             else:
                 print("  ⚠️ 浏览器抓取到的页面内容过短或为空。")
