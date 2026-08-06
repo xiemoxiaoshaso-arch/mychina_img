@@ -114,12 +114,27 @@ def parse_domestic_movie_detail(movie_url):
         if code.isdigit() or len(code) < 3:
             return None
 
+        # 🌟【精准封面提取】：1. 优先从 og:image 抓取；2. 其次抓取 article 或正文内的第一张大图
         cover_url = ""
-        cover_img = soup.find('img', class_='cover') or soup.find('meta', property='og:image') or soup.find('div', class_='entry-media').find('img') if soup.find('div', class_='entry-media') else None
-        if cover_img:
-            cover_url = cover_img.get('content') if cover_img.name == 'meta' else cover_img.get('src', '') or cover_img.get('data-src', '')
-            if cover_url and cover_url.startswith('//'):
-                cover_url = 'https:' + cover_url
+        meta_img = soup.find('meta', property='og:image')
+        if meta_img and meta_img.get('content'):
+            cover_url = meta_img.get('content')
+        else:
+            # 匹配 WordPress 文章内部的常规图片（对齐你提供的 wp-image-* 结构）
+            cover_img_tag = soup.select_one("article.post img, .post img, .entry-content img, .site-main img")
+            if cover_img_tag:
+                cover_url = cover_img_tag.get('src') or cover_img_tag.get('data-src', '')
+            
+            # 保底策略：如果还没找到，遍历页面中所有包含 wp-content/uploads 的图片，取第一张
+            if not cover_url:
+                for img in soup.find_all('img', src=True):
+                    src = img.get('src', '')
+                    if "/wp-content/uploads/" in src and not any(x in src.lower() for x in ['avatar', 'logo', 'icon', 'banner', 'pixel', 'spacer', 'loading']):
+                        cover_url = src
+                        break
+
+        if cover_url and cover_url.startswith('//'):
+            cover_url = 'https:' + cover_url
 
         preview_images = []
         for img in soup.select('.photos img, .preview img, .entry-content img'):
