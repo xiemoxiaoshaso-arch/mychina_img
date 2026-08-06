@@ -1,7 +1,7 @@
 import os
 import sys
-import re
 import time
+import re
 import json
 import random
 import urllib.request
@@ -27,10 +27,8 @@ if not CF_SECRET_TOKEN: missing_vars.append("CF_SECRET_TOKEN")
 
 if missing_vars:
     print(f"❌ 启动失败！检测到当前系统环境中缺少以下必要变量: {', '.join(missing_vars)}")
-    print("👉 请前往该仓库的 Settings -> Secrets and variables -> Actions 中进行配置！")
     sys.exit(1)
 
-# 自动解析出 Base URL
 base_api = CF_WORKER_DOMESTIC_API.rstrip('/')
 if base_api.endswith('/api/movie'):
     base_api = base_api[:-10]
@@ -68,25 +66,44 @@ def get_existing_codes_from_api():
         print(f"⚠️ 无法通过 API 获取云端号码列表，将进行全量更新比对: {e}")
     return set()
 
-# ==================== 3. 智能网页请求器（支持 ScraperAPI 代理防护） ====================
+# ==================== 3. 🌟 增强型智能网络请求器（带全景诊断日志） ====================
 def fetch_html_content(url):
     global SCRAPER_API_KEY
+    
+    # 优先尝试通过 ScraperAPI 代理抓取
     if SCRAPER_API_KEY:
+        masked_key = SCRAPER_API_KEY[:4] + "..." + SCRAPER_API_KEY[-4:] if len(SCRAPER_API_KEY) > 8 else "存在"
+        print(f"📡 [检测到 SCRAPER_API_KEY]: {masked_key}，正在走云端代理请求: {url}")
+        
+        # 暂时先不加 render=true，使用普通代理看看返回什么
         proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={quote(url, safe='')}&keep_headers=true"
+        
         try:
             req = urllib.request.Request(proxy_url, headers={"User-Agent": HEADERS["User-Agent"]})
             with urllib.request.urlopen(req, timeout=45) as response:
-                return response.read().decode('utf-8')
-        except Exception:
-            pass
+                html_text = response.read().decode('utf-8')
+                print(f"📡 [代理响应成功] 返回源码前 300 字符:\n{html_text[:300]}")
+                return html_text
+        except Exception as e:
+            print(f"  ⚠️ 住宅代理请求异常: {e}，正在尝试本地直连保底...")
 
-    # 备用直连
+    # 备用直连方式
+    print(f"📡 正在尝试本地 curl_cffi 直连请求: {url}")
     try:
         resp = curl_requests.get(url, headers=HEADERS, impersonate="chrome120", timeout=15)
+        print(f"📡 [直连响应] 状态码: {resp.status_code}")
         if resp.status_code == 200:
+            print(f"📡 [直连源码前300字]:\n{resp.text[:300]}")
             return resp.text
-    except Exception:
-        pass
+        else:
+            print(f"=================== 🔥 列表页拦截诊断日志 ===================")
+            print(f"🔥 返回的 HTTP 状态码: {resp.status_code}")
+            print(f"🔥 返回的 Headers:\n{json.dumps(dict(resp.headers), indent=2)}")
+            print(f"🔥 返回的源码前 500 字符:\n{resp.text[:500]}")
+            print("==========================================================")
+    except Exception as e:
+        print(f"  ⚠️ 直连网络异常: {e}")
+        
     return None
 
 # ==================== 4. 国产详情页解析模块 ====================
@@ -99,27 +116,20 @@ def parse_domestic_movie_detail(movie_url):
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        # 🌟【注意】：根据 madouqu.com 实际的 HTML 结构调整以下 CSS 选择器
-        # 提取标题
         title_tag = soup.find('h1') or soup.find('h2')
         title = title_tag.text.strip() if title_tag else "未知标题"
-
-        # 提取番号（Code）- 如果页面上有明确的番号标签，可在此提取，若无则用 URL 尾缀或标题作为唯一 Code
         code = movie_url.strip('/').split('/')[-1].upper()
 
-        # 提取封面图
         cover_url = ""
         cover_img = soup.find('img', class_='cover') or soup.find('meta', property='og:image')
         if cover_img:
             cover_url = cover_img.get('content') if cover_img.name == 'meta' else cover_img.get('src', '')
 
-        # 提取预览图
         preview_images = []
         for img in soup.select('.photos img, .preview img'):
             src = img.get('src')
             if src: preview_images.append(src)
 
-        # 提取磁力链接（若站点提供）
         magnets = []
         for a in soup.find_all('a', href=True):
             link = a['href']
@@ -136,7 +146,7 @@ def parse_domestic_movie_detail(movie_url):
             "code": code,
             "title": title,
             "cover_url": cover_url,
-            "release_date": time.strftime("%Y-%m-%d"), # 默认当前日期或从页面解析
+            "release_date": time.strftime("%Y-%m-%d"),
             "duration": "120",
             "director": "",
             "studio": "Madouqu",
@@ -180,31 +190,30 @@ def start_domestic_scan():
     print("🚀 开始国产区增量自适应多页扫描...")
 
     while True:
-        # 🌟 对齐你提供的格式：https://madouqu.com/modelmedia/page/2/
         url = f"{DOMESTIC_HOST}/modelmedia/page/{page}/"
         print(f"📦 正在扫描国产列表页 (Page {page}): {url}")
         
         html = fetch_html_content(url)
+        
         if not html:
-            print(f"❌ 访问第 {page} 页失败（请求为空或触发拦截）")
+            print(f"❌ 访问第 {page} 页失败（请求为空）")
             break
 
         soup = BeautifulSoup(html, 'html.parser')
         page_cards = []
         
-        # 🌟【适配选择器】：根据 madouqu.com 列表页结构提取卡片与详情页链接
-        # 通常列表页每个视频卡片是一个 <a> 标签或包含在特定 box 中
         for a in soup.select("a[href*='/modelmedia/']"):
             href = a.get("href")
             if href and href != "/modelmedia/" and href.count('/') >= 2:
                 detail_url = href if href.startswith('http') else DOMESTIC_HOST + href
-                # 用详情页的 URL 路径作为唯一识别 code
                 code = href.strip('/').split('/')[-1].upper()
                 if code and not any(m["code"] == code for m in page_cards):
                     page_cards.append({"code": code, "url": detail_url})
 
+        print(f"🔍 [Debug] 当前页通过选择器初步提取到链接数: {len(page_cards)}")
+
         if not page_cards:
-            print(f"🏁 扫描到第 {page} 页时没有发现任何视频卡片，自动结束扫描。")
+            print(f"🏁 扫描到第 {page} 页时没有发现任何链接，打印当前页面前 400 字符供分析：\n{html[:400]}")
             break
 
         page_new_count = 0
@@ -249,9 +258,9 @@ def start_domestic_scan():
                     else:
                         print(f"  ❌ [同步失败] 国产视频 [{code}] 推送失败: {error_msg}")
                 else:
-                    print(f"  ❌ [解析失败] 链接标识: {code}")
+                    print(f"  ❌ [解析失败] 标识码: {code}")
             except Exception as exc:
-                print(f"  ❌ 标识 {code} 线程崩溃: {exc}")
+                print(f"  ❌ 标识码 {code} 线程崩溃: {exc}")
 
     print("\n🎉【国产区每日增量同步任务全部执行成功！】")
 
